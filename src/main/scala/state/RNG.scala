@@ -106,9 +106,9 @@ object RNG {
   def nonNegativeLessThan(n: Int): Rand[Int] = { rng =>
     val (i, rng2) = nonNegativeInt(rng)
     val mod = i % n
-    if (i + (n - 1) - mod >= 0)
+    if (i + (n-1) - mod >= 0)
       (mod, rng2)
-    else nonNegativeLessThan(n)(rng)
+    else nonNegativeLessThan(n)(rng2)
   }
 
   //[6.8] Implement flatMap, and then use it to implement nonNegativeLessThan.
@@ -132,4 +132,9 @@ object RNG {
     flatMap(ra)(a =>
       map(rb)(b => f(a, b))
     )
+
+  def boolean: Rand[Boolean] = {
+    val r: Rand[Int] = rng => nonNegativeInt(rng)
+    map(r)(i => i % 2 == 0)
+  }
 }
