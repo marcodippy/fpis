@@ -129,6 +129,9 @@ object Gen {
 
   def int: Gen[Int] = Gen[Int](State(RNG.nonNegativeInt))
 
+  def string(lenght: Int): Gen[String] =
+    listOfN(lenght, choose(0, 127)).map(_.map(_.toChar).mkString)
+
   def listOfN[A](n: Int, g: Gen[A]): Gen[List[A]] =
     Gen[List[A]](State.sequence(List.fill(n)(g.sample)))
 
