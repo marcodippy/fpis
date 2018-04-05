@@ -25,6 +25,9 @@ object NonBlocking {
         def apply(cb: A => Unit): Unit = cb(a)
       }
 
+    def lazyUnit[A](a: => A): Par[A] =
+      fork(unit(a))
+
     def fork[A](a: => Par[A]): Par[A] =
       es => new Future[A] {
         def apply(cb: A => Unit): Unit = eval(es)(a(es)(cb))
@@ -32,9 +35,40 @@ object NonBlocking {
 
     def eval(es: ExecutorService)(r: => Unit): Unit = {
       val _ = es.submit(new Callable[Unit] {
-        def call = r
+        def call: Unit = r
       })
     }
+
+    def async[A](f: (A => Unit) => Unit): Par[A] = es => new Future[A] {
+      def apply(k: A => Unit): Unit = f(k)
+    }
+
+    def asyncF[A, B](f: A => B): A => Par[B] =
+      a => lazyUnit(f(a))
+
+    def sequenceRight[A](as: List[Par[A]]): Par[List[A]] =
+      as match {
+        case Nil => unit(Nil)
+        case h :: t => map2(h, fork(sequence(t)))(_ :: _)
+      }
+
+    def sequenceBalanced[A](as: IndexedSeq[Par[A]]): Par[IndexedSeq[A]] = fork {
+      if (as.isEmpty) unit(Vector())
+      else if (as.length == 1) map(as.head)(a => Vector(a))
+      else {
+        val (l,r) = as.splitAt(as.length/2)
+        map2(sequenceBalanced(l), sequenceBalanced(r))(_ ++ _)
+      }
+    }
+
+    def sequence[A](as: List[Par[A]]): Par[List[A]] =
+      map(sequenceBalanced(as.toIndexedSeq))(_.toList)
+
+    def parMap[A, B](as: List[A])(f: A => B): Par[List[B]] =
+      sequence(as.map(asyncF(f)))
+
+    def parMap[A, B](as: IndexedSeq[A])(f: A => B): Par[IndexedSeq[B]] =
+      sequenceBalanced(as.map(asyncF(f)))
 
     def map2[A, B, C](p: Par[A], p2: Par[B])(f: (A, B) => C): Par[C] =
       es => new Future[C] {
@@ -127,10 +161,14 @@ object NonBlocking {
 
     class ParOps[A](p: Par[A]) {
       def map[B](f: A => B): Par[B] = Par.map(p)(f)
-      def map2[B,C](b: Par[B])(f: (A,B) => C): Par[C] = Par.map2(p,b)(f)
+
+      def map2[B, C](b: Par[B])(f: (A, B) => C): Par[C] = Par.map2(p, b)(f)
+
       def flatMap[B](f: A => Par[B]): Par[B] = Par.flatMap(p)(f)
-      def zip[B](b: Par[B]): Par[(A,B)] = p.map2(b)((_,_))
+
+      def zip[B](b: Par[B]): Par[(A, B)] = p.map2(b)((_, _))
     }
+
   }
 
 }
