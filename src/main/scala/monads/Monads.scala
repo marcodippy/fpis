@@ -1,5 +1,7 @@
 package monads
 
+import applicative.Applicative
+
 trait Functor[F[_]] {
   def map[A, B](fa: F[A])(f: A => B): F[B]
 
@@ -20,26 +22,26 @@ object Functor {
   }
 }
 
-trait Monad[F[_]] {
+trait Monad[F[_]] extends Applicative[F] {
   def unit[A](a: => A): F[A]
 
   def flatMap[A, B](fa: F[A])(f: A => F[B]): F[B]
 
-  def map2[A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C): F[C] =
+  override def map2[A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C): F[C] =
     flatMap(fa)(a => map(fb)(b => f(a, b)))
 
-  def map[A, B](fa: F[A])(f: A => B): F[B] =
+  override def map[A, B](fa: F[A])(f: A => B): F[B] =
     flatMap(fa)(a => unit(f(a)))
 
   //[11.3] implement sequence and traverse
-  def sequence[A](lma: List[F[A]]): F[List[A]] =
+  override def sequence[A](lma: List[F[A]]): F[List[A]] =
     lma.foldRight(unit(List.empty[A]))((fa, fas) => map2(fa, fas)(_ :: _))
 
-  def traverse[A, B](la: List[A])(f: A => F[B]): F[List[B]] =
+  override def traverse[A, B](la: List[A])(f: A => F[B]): F[List[B]] =
     la.foldRight(unit(List.empty[B]))((a, fbs) => map2(f(a), fbs)(_ :: _))
 
   //[11.4] Implement replicateM
-  def replicateM[A](n: Int, ma: F[A]): F[List[A]] =
+  override def replicateM[A](n: Int, ma: F[A]): F[List[A]] =
     sequence(List.fill(n)(ma))
 
   //[11.6]  Implement the function filterM. It’s a bit like filter, except that instead of a function from A => Boolean,
@@ -69,6 +71,19 @@ trait Monad[F[_]] {
 
   def composeWithJoin[A, B, C](f: A => F[B], g: B => F[C]): A => F[C] =
     a => join(map(f(a))(g))
+
+
+  //[12.20] Implement the composition of two monads where one of them is traversable.
+  import applicative.Traverse
+
+  def composeM[G[_], H[_]](implicit G: Monad[G], H: Monad[H], T: Traverse[H]): Monad[Lambda[x => G[H[x]]]] =
+    new Monad[Lambda[x => G[H[x]]]] {
+      def unit[A](a: => A): G[H[A]] = G.unit(H.unit(a))
+
+      override def flatMap[A, B](mna: G[H[A]])(f: A => G[H[B]]): G[H[B]] =
+        G.flatMap(mna)(na => G.map(T.traverse(na)(f))(H.join))
+    }
+
 
 }
 
@@ -170,5 +185,11 @@ object Monad {
     def ask[R]: Reader[R, R] = Reader(r => r)
   }
 
+  //[12.5]Write a monad instance for Either.
+  def eitherMonad[E]: Monad[Either[E, ?]] = new Monad[Either[E, ?]] {
+    override def unit[A](a: => A): Either[E, A] = Right(a)
+
+    override def flatMap[A, B](fa: Either[E, A])(f: A => Either[E, B]): Either[E, B] = fa.flatMap(f)
+  }
 }
 
